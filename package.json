@@ -16,6 +16,7 @@
     "node-fetch": "^3.3.2",
     "jsonwebtoken": "^9.0.2",
     "nodemailer": "^6.9.13",
+    "googleapis": "^136.0.0",
     "pg": "^8.11.5",
     "uuid": "^9.0.1"
   },
