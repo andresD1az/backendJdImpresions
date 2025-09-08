@@ -1,4 +1,5 @@
 import express from 'express';
+import { setDefaultResultOrder } from 'node:dns';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { pool } from './config/db.js';
@@ -7,6 +8,9 @@ import authRouter, { devRouter } from './routes/auth.js';
 import managerRouter from './routes/manager.js';
 
 dotenv.config();
+
+// Prefer IPv4 first to avoid ENETUNREACH when the platform lacks IPv6 routing
+try { setDefaultResultOrder('ipv4first') } catch {}
 
 const app = express();
 // CORS con preflight y cabeceras personalizadas (Authorization)
