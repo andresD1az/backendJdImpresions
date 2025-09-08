@@ -1,8 +1,11 @@
 import dotenv from 'dotenv';
+import { setDefaultResultOrder } from 'node:dns';
 import pkg from 'pg';
 const { Pool } = pkg;
 
 dotenv.config();
+// Apply IPv4-first BEFORE constructing any Pool to avoid ENETUNREACH on platforms without IPv6 routing
+try { setDefaultResultOrder('ipv4first') } catch {}
 
 const connectionString = process.env.DATABASE_URL;
 
