@@ -2,10 +2,14 @@ import express from 'express';
 import { setDefaultResultOrder } from 'node:dns';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import helmet from 'helmet';
+import client from 'prom-client';
+import rateLimit from 'express-rate-limit';
 import { pool } from './config/db.js';
 import { runMigrations } from './db/runMigrations.js';
 import authRouter, { devRouter } from './routes/auth.js';
 import managerRouter from './routes/manager.js';
+import storeRouter from './routes/store.js';
 
 dotenv.config();
 
@@ -13,9 +17,17 @@ dotenv.config();
 try { setDefaultResultOrder('ipv4first') } catch {}
 
 const app = express();
-// CORS con preflight y cabeceras personalizadas (Authorization)
+// Behind reverse proxy (Docker/Compose/Nginx): allow Express to honor X-Forwarded-* headers
+app.set('trust proxy', true);
+// Seguridad HTTP
+app.use(helmet({ contentSecurityPolicy: false, crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' } }));
+// CORS con allowlist
+const allowed = new Set([process.env.FRONTEND_URL].filter(Boolean));
 const corsOptions = {
-  origin: true,
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    return cb(null, allowed.has(origin));
+  },
   credentials: true,
   methods: ['GET','POST','PATCH','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization','authorization'],
@@ -23,16 +35,18 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
-// Fallback headers in case any proxy strips CORS
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, authorization');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
-  next();
-});
 app.use(express.json());
+
+// Prometheus metrics: default process metrics
+client.collectDefaultMetrics();
+app.get('/metrics', async (_req, res) => {
+  try {
+    res.set('Content-Type', client.register.contentType);
+    res.send(await client.register.metrics());
+  } catch (e) {
+    res.status(500).send('metrics_error');
+  }
+});
 
 const PORT = process.env.PORT || 4000;
 
@@ -49,12 +63,21 @@ app.get('/health', async (req, res) => {
   res.json(status);
 });
 
+// Rate limiting
+const authLimiter = rateLimit({ windowMs: 15*60*1000, max: 100 });
+const storeLimiter = rateLimit({ windowMs: 5*60*1000, max: 300 });
+
 // Routes
-app.use('/auth', authRouter);
-// Dev/test helpers (e.g., /auth/email-test)
-app.use('/auth', devRouter);
-// Manager endpoints
+app.use('/auth', authLimiter, authRouter);
+// Dev/test helpers solo fuera de producción
+if ((process.env.NODE_ENV || 'development') !== 'production') {
+  app.use('/auth', devRouter);
+}
+// Admin/Manager endpoints (alias temporal durante transición)
+app.use('/admin', managerRouter);
 app.use('/manager', managerRouter);
+// Store (client-facing) endpoints
+app.use('/store', storeLimiter, storeRouter);
 
 // Start
 app.listen(PORT, async () => {

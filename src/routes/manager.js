@@ -2,6 +2,7 @@ import express from 'express'
 import { query } from '../config/db.js'
 import { requireAuth } from '../middleware/auth.js'
 import { ensureRole } from '../middleware/roles.js'
+import { requirePerm } from '../middleware/permissions.js'
 
 const router = express.Router()
 
@@ -50,6 +51,124 @@ router.get('/kpis/overview', requireAuth, ensureRole(['manager']), async (req, r
     })
   } catch (e) {
     return res.status(500).json({ error: 'kpis_overview_error' })
+  }
+})
+
+// List sales (manager)
+router.get('/sales', requireAuth, ensureRole(['manager']), async (req, res) => {
+  try {
+    await query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS fulfillment_status TEXT NOT NULL DEFAULT 'pending'`)
+    const { status, q, page = 1, pageSize = 25 } = req.query || {}
+    const params = []
+    const where = []
+    if (status) { params.push(status); where.push(`s.fulfillment_status = $${params.length}`) }
+    if (q) { params.push(`%${q}%`); where.push(`(u.email ILIKE $${params.length} OR CAST(s.id AS TEXT) ILIKE $${params.length})`) }
+    const pageN = Math.max(1, Number(page)||1)
+    const sizeN = Math.min(100, Math.max(1, Number(pageSize)||25))
+    const offset = (pageN - 1) * sizeN
+    const sql = `
+      SELECT s.id, s.occurred_at, s.total, s.status, s.fulfillment_status, s.payment_ref,
+             u.email AS customer_email
+        FROM sales s
+        LEFT JOIN users u ON u.id = s.user_id
+       ${where.length? 'WHERE ' + where.join(' AND ') : ''}
+       ORDER BY s.occurred_at DESC
+       LIMIT ${sizeN} OFFSET ${offset}
+    `
+    const { rows } = await query(sql, params)
+    return res.json({ sales: rows, page: pageN, pageSize: sizeN })
+  } catch (e) {
+    return res.status(500).json({ error: 'list_sales_error' })
+  }
+})
+
+// Get sale detail (manager)
+router.get('/sales/:id', requireAuth, ensureRole(['manager']), async (req, res) => {
+  try {
+    const { id } = req.params
+    const { rows: hdr } = await query(`
+      SELECT s.id, s.occurred_at, s.total, s.status, s.fulfillment_status, s.payment_ref,
+             u.email AS customer_email
+        FROM sales s
+        LEFT JOIN users u ON u.id = s.user_id
+       WHERE s.id = $1
+       LIMIT 1
+    `, [id])
+    if (!hdr.length) return res.status(404).json({ error: 'not_found' })
+    const { rows: its } = await query(`
+      SELECT si.id, si.quantity, si.unit_price, si.line_total, p.sku, p.name
+        FROM sale_items si
+        JOIN products p ON p.id = si.product_id
+       WHERE si.sale_id = $1
+       ORDER BY si.id
+    `, [id])
+    return res.json({ sale: hdr[0], items: its })
+  } catch (e) {
+    return res.status(500).json({ error: 'sale_detail_error' })
+  }
+})
+
+// Update fulfillment status (manager)
+router.patch('/sales/:id/status', requireAuth, ensureRole(['manager']), async (req, res) => {
+  try {
+    await query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS fulfillment_status TEXT NOT NULL DEFAULT 'pending'`)
+    const { id } = req.params
+    const { status } = req.body || {}
+    const allowed = new Set(['pending','pagando','enviado','recibido'])
+    const st = String(status||'').toLowerCase()
+    if (!allowed.has(st)) return res.status(400).json({ error: 'invalid_status' })
+    await query('UPDATE sales SET fulfillment_status = $2 WHERE id = $1', [id, st])
+    return res.json({ ok: true })
+  } catch (e) {
+    return res.status(500).json({ error: 'update_status_error' })
+  }
+})
+
+// Demo seed: create example products and stock for local testing
+router.post('/seed/demo', requireAuth, ensureRole(['manager']), async (req, res) => {
+  try {
+    const products = [
+      { sku: 'A001', name: 'Cuaderno Argollado', category: 'Papelería', unit: 'unidad' },
+      { sku: 'B002', name: 'Lápiz HB', category: 'Escritura', unit: 'unidad' },
+      { sku: 'C003', name: 'Resaltador Amarillo', category: 'Marcadores', unit: 'unidad' },
+      { sku: 'D004', name: 'Borrador Blanco', category: 'Accesorios', unit: 'unidad' },
+      { sku: 'E005', name: 'Regla 30cm', category: 'Accesorios', unit: 'unidad' }
+    ]
+    const stock = [
+      { sku: 'A001', area: 'bodega', quantity: 50 },
+      { sku: 'A001', area: 'surtido', quantity: 10 },
+      { sku: 'B002', area: 'bodega', quantity: 100 },
+      { sku: 'C003', area: 'bodega', quantity: 40 },
+      { sku: 'D004', area: 'bodega', quantity: 60 },
+      { sku: 'E005', area: 'bodega', quantity: 30 }
+    ]
+
+    // Upsert products (basic fields); leave prices en 0 para que el manager los edite
+    for (const p of products) {
+      await query(
+        `INSERT INTO products (sku, name, category, unit)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (sku) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category, unit = EXCLUDED.unit, updated_at = NOW()`,
+        [p.sku || null, p.name, p.category || null, p.unit || null]
+      )
+    }
+    // Map sku->id
+    const { rows: prs } = await query('SELECT id, sku FROM products WHERE sku IS NOT NULL')
+    const idBySku = new Map(prs.map(r => [r.sku, r.id]))
+    // Write stock
+    for (const s of stock) {
+      const pid = idBySku.get(s.sku)
+      if (!pid) continue
+      await query(
+        `INSERT INTO inventory_stock (product_id, area, quantity)
+         VALUES ($1,$2,$3)
+         ON CONFLICT (product_id, area) DO UPDATE SET quantity = EXCLUDED.quantity`,
+        [pid, s.area, Number(s.quantity) || 0]
+      )
+    }
+    return res.json({ ok: true, products: products.length, stock: stock.length })
+  } catch (e) {
+    return res.status(500).json({ error: 'seed_demo_error', message: e?.message || String(e) })
   }
 })
 
@@ -178,12 +297,15 @@ router.post('/inventory/rebuild-stock', requireAuth, ensureRole(['manager']), as
 router.get('/products', requireAuth, ensureRole(['manager']), async (req, res) => {
   try {
     const { q } = req.query
-    // Ensure price_locked column exists
+    // Ensure columns exist
     await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS price_locked BOOLEAN NOT NULL DEFAULT FALSE`)
+    await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT`)
     let sql = `
       SELECT p.id, p.sku, p.name, p.category, p.unit,
              p.purchase_price, p.margin_percent, p.discount_percent, p.sale_price_cop,
              p.price_locked,
+             p.description,
+             p.image_url,
              COALESCE(sb.qty,0) AS stock_bodega,
              COALESCE(ss.qty,0) AS stock_surtido,
              COALESCE(sb.qty,0) + COALESCE(ss.qty,0) AS stock_total,
@@ -211,9 +333,9 @@ router.get('/products', requireAuth, ensureRole(['manager']), async (req, res) =
   }
 })
 
-router.post('/products', requireAuth, ensureRole(['manager']), async (req, res) => {
+router.post('/products', requireAuth, ensureRole(['manager']), requirePerm('product:edit'), async (req, res) => {
   try {
-    const { sku, name, category, unit, purchase_price, margin_percent, discount_percent, sale_price_cop } = req.body || {}
+    const { sku, name, category, unit, purchase_price, margin_percent, discount_percent, sale_price_cop, description, image_url } = req.body || {}
     if (!sku || !name) return res.status(400).json({ error: 'missing_fields' })
     const pp = Number(purchase_price)||0
     const mp = Number(margin_percent)||0
@@ -225,8 +347,8 @@ router.post('/products', requireAuth, ensureRole(['manager']), async (req, res) 
       sp = Math.round(net / base) * base
     }
     const { rows } = await query(
-      `INSERT INTO products (sku, name, category, unit, purchase_price, margin_percent, discount_percent, sale_price_cop)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      `INSERT INTO products (sku, name, category, unit, purchase_price, margin_percent, discount_percent, sale_price_cop, description, image_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT (sku) DO UPDATE SET
           name=EXCLUDED.name,
           category=EXCLUDED.category,
@@ -235,10 +357,12 @@ router.post('/products', requireAuth, ensureRole(['manager']), async (req, res) 
           margin_percent=EXCLUDED.margin_percent,
           discount_percent=EXCLUDED.discount_percent,
           sale_price_cop=EXCLUDED.sale_price_cop,
+          description=EXCLUDED.description,
+          image_url=EXCLUDED.image_url,
           updated_at = NOW()
-       RETURNING id, sku, name, category, unit, purchase_price, margin_percent, discount_percent, sale_price_cop`,
+       RETURNING id, sku, name, category, unit, purchase_price, margin_percent, discount_percent, sale_price_cop, description, image_url`,
       [sku, name, category || null, unit || null,
-       pp, mp, dp, sp]
+       pp, mp, dp, sp, description || null, image_url || null]
     )
     return res.json({ ok: true, product: rows[0] })
   } catch (e) {
@@ -246,10 +370,10 @@ router.post('/products', requireAuth, ensureRole(['manager']), async (req, res) 
   }
 })
 
-router.patch('/products/:id', requireAuth, ensureRole(['manager','bodega','surtido','descargue']), async (req, res) => {
+router.patch('/products/:id', requireAuth, ensureRole(['manager','bodega','surtido','descargue']), requirePerm('price:edit'), async (req, res) => {
   try {
     const { id } = req.params
-    const { name, category, unit, purchase_price, margin_percent, discount_percent, sale_price_cop, price_change_reason } = req.body || {}
+    const { name, category, unit, purchase_price, margin_percent, discount_percent, sale_price_cop, price_change_reason, description, image_url } = req.body || {}
 
     // Read current price to detect change
     const cur = await query('SELECT sale_price_cop FROM products WHERE id = $1', [id])
@@ -287,6 +411,8 @@ router.patch('/products/:id', requireAuth, ensureRole(['manager','bodega','surti
            discount_percent = COALESCE($7, discount_percent),
            sale_price_cop = COALESCE($8, sale_price_cop),
            price_locked = COALESCE($9, price_locked),
+           description = COALESCE($10, description),
+           image_url = COALESCE($11, image_url),
            updated_at = NOW()
          WHERE id = $1`,
         [id,
@@ -297,7 +423,9 @@ router.patch('/products/:id', requireAuth, ensureRole(['manager','bodega','surti
          margin_percent !== undefined ? Number(margin_percent) : null,
          discount_percent !== undefined ? Number(discount_percent) : null,
          sale_price_cop !== undefined ? Number(sale_price_cop) : null,
-         req.body.price_locked !== undefined ? !!req.body.price_locked : null]
+         req.body.price_locked !== undefined ? !!req.body.price_locked : null,
+         description !== undefined ? (description || null) : null,
+         image_url !== undefined ? (image_url || null) : null]
       )
     }
 
@@ -360,7 +488,7 @@ router.delete('/products/:id', requireAuth, ensureRole(['manager']), async (req,
 })
 
 // Stock by area
-router.get('/inventory/stock', requireAuth, ensureRole(['manager','bodega','surtido']), async (req, res) => {
+router.get('/inventory/stock', requireAuth, ensureRole(['manager','bodega','surtido']), requirePerm('inventory:view'), async (req, res) => {
   try {
     const { area, q } = req.query
     if (area && !['bodega','surtido'].includes(area)) return res.status(400).json({ error: 'invalid_area' })
@@ -383,7 +511,7 @@ router.get('/inventory/stock', requireAuth, ensureRole(['manager','bodega','surt
   }
 })
 // Create a single inventory movement and update stock
-router.post('/inventory/movement', requireAuth, ensureRole(['manager','bodega','surtido','descargue']), async (req, res) => {
+router.post('/inventory/movement', requireAuth, ensureRole(['manager','bodega','surtido','descargue']), requirePerm('inventory:move'), async (req, res) => {
   try {
     const { sku, area, type, quantity, reason } = req.body || {}
     if (!sku || !area || !type || !quantity) return res.status(400).json({ error: 'missing_fields' })
@@ -425,7 +553,7 @@ router.post('/inventory/movement', requireAuth, ensureRole(['manager','bodega','
 })
 
 // Transfer stock between areas by creating two movements
-router.post('/inventory/transfer', requireAuth, ensureRole(['manager','bodega','surtido']), async (req, res) => {
+router.post('/inventory/transfer', requireAuth, ensureRole(['manager','bodega','surtido']), requirePerm('inventory:move'), async (req, res) => {
   try {
     const { sku, fromArea, toArea, quantity, reason } = req.body || {}
     if (!sku || !fromArea || !toArea || !quantity) return res.status(400).json({ error: 'missing_fields' })
@@ -565,5 +693,112 @@ router.post('/import', requireAuth, ensureRole(['manager']), async (req, res) =>
     return res.json({ ok: true, products: products.length, stock: inventory_stock.length, movements: inventory_movements.length })
   } catch (e) {
     return res.status(500).json({ error: 'import_error', message: e?.message || String(e) })
+  }
+})
+
+// Import structured sheet data: { categorias:[], proveedores:[], productos:[] }
+router.post('/import/sheet', requireAuth, ensureRole(['manager']), async (req, res) => {
+  const body = req.body || {}
+  const categorias = Array.isArray(body.categorias) ? body.categorias : []
+  const proveedores = Array.isArray(body.proveedores) ? body.proveedores : []
+  const productos = Array.isArray(body.productos) ? body.productos : []
+  try {
+    await query('BEGIN')
+    try {
+      // Upsert categories
+      for (const c of categorias) {
+        await query(
+          `INSERT INTO categories (ext_id, name)
+           VALUES ($1,$2)
+           ON CONFLICT (ext_id) DO UPDATE SET name = EXCLUDED.name`,
+          [String(c.id_categoria||'').trim() || null, c.nombre]
+        )
+      }
+      // Upsert suppliers
+      for (const s of proveedores) {
+        await query(
+          `INSERT INTO suppliers (ext_id, name, nit, contact, phone)
+           VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT (ext_id) DO UPDATE SET name=EXCLUDED.name, nit=EXCLUDED.nit, contact=EXCLUDED.contact, phone=EXCLUDED.phone`,
+          [String(s.id_proveedor||'').trim() || null, s.nombre, s.nit || null, s.contacto || null, s.telefono || null]
+        )
+      }
+      // Maps
+      const { rows: catRows } = await query('SELECT id, ext_id FROM categories')
+      const catByExt = new Map(catRows.map(r => [r.ext_id, r.id]))
+      const { rows: supRows } = await query('SELECT id, ext_id FROM suppliers')
+      const supByExt = new Map(supRows.map(r => [r.ext_id, r.id]))
+
+      // Upsert products and stock
+      for (const p of productos) {
+        const sku = String(p.sku||'').trim() || null
+        const catId = p.id_categoria ? catByExt.get(String(p.id_categoria)) || null : null
+        const supId = p.id_proveedor ? supByExt.get(String(p.id_proveedor)) || null : null
+        const iva = p.iva_pct != null ? (Number(p.iva_pct) > 1 ? Number(p.iva_pct) : Number(p.iva_pct) * 100) : 0
+        const purchase = Number(p.costo_compra||0)
+        const sale = Number(p.precio_venta||0)
+        const saleMayor = Number(p.precio_mayorista||0)
+        const discountMax = Number(p.descuento_max_pct||0)
+        const margin = Number(p.margen_pct||0)
+        await query(
+          `INSERT INTO products (
+             sku, name, category, unit, brand, category_id, supplier_id,
+             purchase_price, tax_percent, sale_price_unit, sale_price_bulk, discount_percent, margin_percent, sale_price_cop,
+             bar_code, stock_min, location, status, warranty_months, weight_kg, image_url, created_at, updated_at
+           ) VALUES (
+             $1,$2,$3,$4,$5,$6,$7,
+             $8,$9,$10,$11,$12,$13,$14,
+             $15,$16,$17,$18,$19,$20,$21,NOW(),NOW()
+           )
+           ON CONFLICT (sku) DO UPDATE SET
+             name = EXCLUDED.name,
+             category = EXCLUDED.category,
+             unit = EXCLUDED.unit,
+             brand = EXCLUDED.brand,
+             category_id = EXCLUDED.category_id,
+             supplier_id = EXCLUDED.supplier_id,
+             purchase_price = EXCLUDED.purchase_price,
+             tax_percent = EXCLUDED.tax_percent,
+             sale_price_unit = EXCLUDED.sale_price_unit,
+             sale_price_bulk = EXCLUDED.sale_price_bulk,
+             discount_percent = EXCLUDED.discount_percent,
+             margin_percent = EXCLUDED.margin_percent,
+             sale_price_cop = EXCLUDED.sale_price_cop,
+             bar_code = EXCLUDED.bar_code,
+             stock_min = EXCLUDED.stock_min,
+             location = EXCLUDED.location,
+             status = EXCLUDED.status,
+             warranty_months = EXCLUDED.warranty_months,
+             weight_kg = EXCLUDED.weight_kg,
+             image_url = EXCLUDED.image_url,
+             updated_at = NOW()`,
+          [
+            sku, p.nombre, null, p.unidad_medida || null, p.marca || null, catId, supId,
+            purchase, iva, sale, saleMayor, discountMax, margin, sale,
+            p.codigo_barras || null, Number(p.stock_minimo||0), p.ubicacion || null, (p.estado? 'activo':'inactivo'), Number(p.garantia_meses||0) || null, Number(p.peso_kg||0) || null, p.imagen_url || null
+          ]
+        )
+        // Stock: bodega = stock_actual
+        if (sku && (p.stock_actual != null)) {
+          const { rows: idr } = await query('SELECT id FROM products WHERE sku = $1', [sku])
+          const pid = idr[0]?.id
+          if (pid) {
+            await query(
+              `INSERT INTO inventory_stock (product_id, area, quantity)
+               VALUES ($1,'bodega',$2)
+               ON CONFLICT (product_id, area) DO UPDATE SET quantity = EXCLUDED.quantity`,
+              [pid, Number(p.stock_actual||0)]
+            )
+          }
+        }
+      }
+      await query('COMMIT')
+      return res.json({ ok: true, categorias: categorias.length, proveedores: proveedores.length, productos: productos.length })
+    } catch (e) {
+      await query('ROLLBACK')
+      throw e
+    }
+  } catch (e) {
+    return res.status(500).json({ error: 'import_sheet_error', message: e?.message || String(e) })
   }
 })

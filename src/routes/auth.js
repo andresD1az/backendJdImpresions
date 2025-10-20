@@ -34,8 +34,7 @@ router.post('/register', async (req, res) => {
   try {
     const { email, password, fullName, securityCode, turnstileToken, recaptchaToken } = req.body || {};
     if (!email || !password || !securityCode) return res.status(400).json({ error: 'missing_fields' });
-
-
+    
     // CAPTCHA: prefer Turnstile, fallback to reCAPTCHA if provided
     const ts = await verifyTurnstile(turnstileToken);
     const rc = !ts?.success ? await verifyRecaptcha(recaptchaToken) : { success: true };
@@ -225,12 +224,28 @@ router.get('/me', requireAuth, enforceSessionState, async (req, res) => {
     // Seleccionar solo columnas seguras que existen en todos los esquemas
     const { rows } = await query('SELECT id, email, full_name, role FROM users WHERE id = $1', [req.user.id]);
     const u = rows[0] || {}
+    const role = (u.role || '').toLowerCase()
+    const isStaff = role && role !== 'client'
+    const permsByRole = {
+      manager: ['report:view','product:view','product:edit','price:edit','image:edit','inventory:view','inventory:move','invoice:emit','return:manage','order:refund','payment:reconcile','user:manage','role:manage','audit:view'],
+      bodega: ['inventory:view','inventory:move'],
+      surtido: ['inventory:view','inventory:move'],
+      descargue: ['inventory:move'],
+      cajero: ['invoice:emit','payment:reconcile'],
+      soporte: ['return:manage'],
+      operativo: [],
+      vendedor: ['product:view','report:view'],
+      client: [],
+    }
+    const perms = permsByRole[role] || []
     // Devolver placeholders para campos opcionales
     return res.json({ user: {
       id: u.id,
       email: u.email,
       full_name: u.full_name,
       role: u.role,
+      is_staff: isStaff,
+      perms,
       status: 'active',
       is_email_verified: true,
       avatar_url: null,
@@ -357,7 +372,7 @@ router.post('/admin/create-employee', requireAuth, ensureRole(['manager']), asyn
       rut, nationalId, bloodType, findings, birthDate, experienceYears
     } = req.body || {};
     if (!email || !password || !securityCode || !role) return res.status(400).json({ error: 'missing_fields' });
-    const allowedRoles = new Set(['bodega', 'descargue', 'surtido', 'manager']);
+    const allowedRoles = new Set(['manager','operativo','bodega','surtido','descargue','vendedor','cajero','soporte']);
     if (!allowedRoles.has(role)) return res.status(400).json({ error: 'invalid_role' });
 
     const existing = await getUserByEmail(email);

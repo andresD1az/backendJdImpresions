@@ -13,6 +13,19 @@ export async function enforceSessionState(req, res, next) {
     const minutesInactive = (now - last) / (1000 * 60);
     const hoursInactive = minutesInactive / 60;
 
+    // No aplicar pantalla de bloqueo ni auto-logout a clientes finales (roles no pertenecientes al staff)
+    const role = (req.user && req.user.role) ? String(req.user.role).toLowerCase() : 'client';
+    const staffRoles = new Set(['manager','operativo','bodega','surtido','descargue','vendedor','cajero','soporte','admin']);
+    const isClientUser = !staffRoles.has(role);
+    if (isClientUser) {
+      // Solo refrescar actividad y continuar
+      try {
+        await query('UPDATE sessions SET last_activity_at = NOW() WHERE id = $1', [session.id]);
+        req.session.last_activity_at = new Date().toISOString();
+      } catch {}
+      return next();
+    }
+
     // Auto-logout if too long inactive
     if (!session.closed_at && hoursInactive >= AUTO_LOGOUT_AFTER_HOURS) {
       await query('UPDATE sessions SET closed_at = NOW() WHERE id = $1', [session.id]);

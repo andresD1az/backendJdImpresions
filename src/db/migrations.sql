@@ -81,61 +81,122 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Drop obsolete pricing columns if they exist (cleanup)
-DO $$ BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='tax_percent'
-  ) THEN
-    ALTER TABLE products DROP COLUMN tax_percent;
-  END IF;
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='sale_price_unit'
-  ) THEN
-    ALTER TABLE products DROP COLUMN sale_price_unit;
-  END IF;
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='sale_price_bulk'
-  ) THEN
-    ALTER TABLE products DROP COLUMN sale_price_bulk;
-  END IF;
-END $$;
+-- Categories
+CREATE TABLE IF NOT EXISTS categories (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ext_id TEXT UNIQUE, -- id_categoria externo
+  name TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
 
--- Ensure pricing columns exist for older schemas
+-- Suppliers
+CREATE TABLE IF NOT EXISTS suppliers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ext_id TEXT UNIQUE, -- id_proveedor externo
+  name TEXT NOT NULL,
+  nit TEXT,
+  contact TEXT,
+  phone TEXT,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+-- Products catalog
+CREATE TABLE IF NOT EXISTS products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  sku TEXT UNIQUE,
+  name TEXT NOT NULL,
+  category TEXT,
+  unit TEXT, -- unidad de medida (unidad, caja, paquete)
+  -- pricing
+  purchase_price NUMERIC NOT NULL DEFAULT 0, -- precio compra (neto)
+  tax_percent NUMERIC NOT NULL DEFAULT 0,    -- % impuesto aplicado sobre compra/venta
+  sale_price_unit NUMERIC NOT NULL DEFAULT 0,   -- precio venta unidad (neto)
+  sale_price_bulk NUMERIC NOT NULL DEFAULT 0,   -- precio venta por mayor (neto)
+  discount_percent NUMERIC NOT NULL DEFAULT 0,  -- % descuento por producto
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+-- Extend products with business fields if missing
 DO $$ BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='purchase_price'
+    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='brand'
   ) THEN
-    ALTER TABLE products ADD COLUMN purchase_price NUMERIC NOT NULL DEFAULT 0;
+    ALTER TABLE products ADD COLUMN brand TEXT;
   END IF;
   IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='tax_percent'
+    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='category_id'
   ) THEN
-    ALTER TABLE products ADD COLUMN tax_percent NUMERIC NOT NULL DEFAULT 0;
+    ALTER TABLE products ADD COLUMN category_id UUID REFERENCES categories(id) ON DELETE SET NULL;
   END IF;
   IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='sale_price_unit'
+    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='supplier_id'
   ) THEN
-    ALTER TABLE products ADD COLUMN sale_price_unit NUMERIC NOT NULL DEFAULT 0;
+    ALTER TABLE products ADD COLUMN supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL;
   END IF;
   IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='sale_price_bulk'
+    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='bar_code'
   ) THEN
-    ALTER TABLE products ADD COLUMN sale_price_bulk NUMERIC NOT NULL DEFAULT 0;
+    ALTER TABLE products ADD COLUMN bar_code TEXT;
   END IF;
   IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='discount_percent'
+    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='stock_min'
   ) THEN
-    ALTER TABLE products ADD COLUMN discount_percent NUMERIC NOT NULL DEFAULT 0;
+    ALTER TABLE products ADD COLUMN stock_min NUMERIC NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='location'
+  ) THEN
+    ALTER TABLE products ADD COLUMN location TEXT;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='status'
+  ) THEN
+    ALTER TABLE products ADD COLUMN status TEXT DEFAULT 'activo';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='warranty_months'
+  ) THEN
+    ALTER TABLE products ADD COLUMN warranty_months INTEGER;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='weight_kg'
+  ) THEN
+    ALTER TABLE products ADD COLUMN weight_kg NUMERIC;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='last_purchase'
+  ) THEN
+    ALTER TABLE products ADD COLUMN last_purchase TIMESTAMP WITH TIME ZONE;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='last_sale'
+  ) THEN
+    ALTER TABLE products ADD COLUMN last_sale TIMESTAMP WITH TIME ZONE;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='image_url'
+  ) THEN
+    ALTER TABLE products ADD COLUMN image_url TEXT;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='sale_price_cop'
+  ) THEN
+    ALTER TABLE products ADD COLUMN sale_price_cop NUMERIC NOT NULL DEFAULT 0;
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='margin_percent'
   ) THEN
     ALTER TABLE products ADD COLUMN margin_percent NUMERIC NOT NULL DEFAULT 0;
   END IF;
+END $$;
+
+DO $$ BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='sale_price_cop'
+    SELECT 1 FROM pg_trigger WHERE tgname = 'products_set_updated'
   ) THEN
-    ALTER TABLE products ADD COLUMN sale_price_cop NUMERIC NOT NULL DEFAULT 0;
+    CREATE TRIGGER products_set_updated BEFORE UPDATE ON products
+    FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
   END IF;
 END $$;
 
@@ -232,6 +293,26 @@ CREATE TABLE IF NOT EXISTS sales (
   total NUMERIC NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_sales_occurred ON sales(occurred_at);
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_name='sales' AND column_name='user_id'
+  ) THEN
+    ALTER TABLE sales ADD COLUMN user_id UUID REFERENCES users(id) ON DELETE SET NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_name='sales' AND column_name='status'
+  ) THEN
+    ALTER TABLE sales ADD COLUMN status TEXT NOT NULL DEFAULT 'pending';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns WHERE table_name='sales' AND column_name='payment_ref'
+  ) THEN
+    ALTER TABLE sales ADD COLUMN payment_ref TEXT;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_sales_user ON sales(user_id);
+CREATE INDEX IF NOT EXISTS idx_sales_status ON sales(status);
 
 CREATE TABLE IF NOT EXISTS sale_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

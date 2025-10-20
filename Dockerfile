@@ -11,7 +11,7 @@ COPY src ./src
 COPY .env.example ./
 
 ENV NODE_ENV=production
-ENV PORT=4000
-EXPOSE 4000
+ENV NODE_OPTIONS="--dns-result-order=ipv4first"
+EXPOSE 5000
 
 CMD ["node", "src/index.js"]
