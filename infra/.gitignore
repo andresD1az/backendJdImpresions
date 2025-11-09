@@ -1,0 +1,5 @@
+﻿.env
+*.env
+*.log
+grafana/
+prometheus/data/

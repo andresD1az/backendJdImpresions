@@ -1,0 +1,4 @@
+jdimpresions.shop, www.jdimpresions.shop {
+  encode gzip
+  reverse_proxy frontend:80
+}

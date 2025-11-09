@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+body { @apply bg-gray-50 text-gray-900; }
+
+/* Accessibility global classes (applied on <html>) */
+.a11y-contrast body {
+  background: #000 !important;
+  color: #fff !important;
+}
+.a11y-contrast a { color: #ffeb3b !important; }
+
+/* Grayscale the whole UI for color-agnostic reading/testing */
+.a11y-grayscale body { filter: grayscale(100%); }
+
+/* Underline all links for better affordance */
+.a11y-underline a { text-decoration: underline !important; }
+
+/* Strong visible focus ring */
+.a11y-focus *:focus {
+  outline: 3px solid #2563eb !important; /* blue-600 */
+  outline-offset: 2px;
+}
+
+/* Reading mode: serif font, larger line-height and spacing */
+.a11y-reading body {
+  font-family: Georgia, 'Times New Roman', serif !important;
+  line-height: 1.6 !important;
+  letter-spacing: 0.2px;
+}
