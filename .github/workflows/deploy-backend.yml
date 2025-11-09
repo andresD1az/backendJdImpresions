@@ -1,0 +1,77 @@
+name: Deploy Backend to Elastic Beanstalk
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate deployment timestamp
+        id: timestamp
+        run: echo "timestamp=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+
+      - name: Create deployment bundle
+        run: |
+          cd backend
+          mkdir -p deploy
+          cp package.json deploy/
+          cp package-lock.json deploy/
+          cp -r src deploy/
+          echo 'web: node src/index.js' > deploy/Procfile
+          cd deploy
+          zip -r ../backend-${{ steps.timestamp.outputs.timestamp }}.zip .
+          cd ..
+          ls -lh backend-*.zip
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+
+      - name: Upload bundle to S3
+        run: |
+          aws s3 cp backend/backend-${{ steps.timestamp.outputs.timestamp }}.zip \
+            s3://elasticbeanstalk-us-east-2-089358500864/jdimpresion-app/backend-${{ steps.timestamp.outputs.timestamp }}.zip
+
+      - name: Create Elastic Beanstalk application version
+        run: |
+          aws elasticbeanstalk create-application-version \
+            --application-name jdimpresion-app \
+            --version-label backend-${{ steps.timestamp.outputs.timestamp }} \
+            --source-bundle S3Bucket="elasticbeanstalk-us-east-2-089358500864",S3Key="jdimpresion-app/backend-${{ steps.timestamp.outputs.timestamp }}.zip" \
+            --region us-east-2
+
+      - name: Deploy to Elastic Beanstalk
+        run: |
+          aws elasticbeanstalk update-environment \
+            --application-name jdimpresion-app \
+            --environment-name jdimpresion-app-env \
+            --version-label backend-${{ steps.timestamp.outputs.timestamp }} \
+            --region us-east-2
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for deployment to complete..."
+          aws elasticbeanstalk wait environment-updated \
+            --application-name jdimpresion-app \
+            --environment-name jdimpresion-app-env \
+            --region us-east-2 \
+            --no-cli-pager || true
+
+      - name: Verify health
+        run: |
+          sleep 30
+          curl -f https://jdimpresion-app-env.eba-p2dffraz.us-east-2.elasticbeanstalk.com/health || echo "Health check failed"
