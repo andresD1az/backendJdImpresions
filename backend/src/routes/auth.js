@@ -460,21 +460,57 @@ router.patch('/admin/employees/:id', requireAuth, ensureRole(['manager']), async
 
     await audit({ userId: req.user.id, eventType: 'update_employee', ip: req.ip, userAgent: req.headers['user-agent'], details: { employeeId: id } });
     return res.json({ ok: true });
-  } catch (e) {
-    return res.status(500).json({ error: 'update_employee_error' });
-  }
 });
 
 // Delete employee (hard delete)
 router.delete('/admin/employees/:id', requireAuth, ensureRole(['manager']), async (req, res) => {
-  try {
-    const { id } = req.params;
-    await query('DELETE FROM users WHERE id = $1', [id]);
-    await audit({ userId: req.user.id, eventType: 'delete_employee', ip: req.ip, userAgent: req.headers['user-agent'], details: { employeeId: id } });
-    return res.json({ ok: true });
-  } catch (e) {
-    return res.status(500).json({ error: 'delete_employee_error' });
-  }
+try {
+const { id } = req.params;
+await query('DELETE FROM users WHERE id = $1', [id]);
+await audit({ userId: req.user.id, eventType: 'delete_employee', ip: req.ip, userAgent: req.headers['user-agent'], details: { employeeId: id } });
+return res.json({ ok: true });
+} catch (e) {
+return res.status(500).json({ error: 'delete_employee_error' });
+}
+});
+
+// Update employee role (manager only)
+router.patch('/admin/employee/:id/role', requireAuth, ensureRole(['manager']), async (req, res) => {
+try {
+const { id } = req.params;
+const { newRole } = req.body || {};
+const allowedRoles = new Set(['manager','operativo','bodega','surtido','descargue','vendedor','cajero','soporte']);
+if (!newRole || !allowedRoles.has(String(newRole))) {
+return res.status(400).json({ error: 'invalid_role' });
+}
+
+// Cannot change own role
+const me = await getUserById(req.user.id);
+if (!me) return res.status(401).json({ error: 'unauthorized' });
+if (String(id) === String(me.id)) {
+return res.status(403).json({ error: 'cannot_change_own_role' });
+}
+
+// Target must exist
+const target = await getUserById(id);
+if (!target) return res.status(404).json({ error: 'not_found' });
+
+// If demoting a manager, ensure at least one manager remains
+const isDemotingManager = String(target.role) === 'manager' && String(newRole) !== 'manager';
+if (isDemotingManager) {
+const { rows } = await query("SELECT COUNT(*)::int AS cnt FROM users WHERE role = 'manager' AND id <> $1", [id]);
+const remaining = rows[0]?.cnt || 0;
+if (remaining <= 0) {
+return res.status(409).json({ error: 'must_keep_one_manager' });
+}
+}
+
+await query('UPDATE users SET role = $1, updated_at = NOW() WHERE id = $2', [String(newRole), id]);
+await audit({ userId: req.user.id, eventType: 'change_role', ip: req.ip, userAgent: req.headers['user-agent'], details: { employeeId: id, fromRole: target.role, toRole: String(newRole) } });
+return res.json({ ok: true });
+} catch (e) {
+return res.status(500).json({ error: 'change_role_error' });
+}
 });
 
 export default router;

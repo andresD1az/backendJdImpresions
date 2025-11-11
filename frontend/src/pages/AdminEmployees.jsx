@@ -3,7 +3,7 @@ import { api } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 
 export default function AdminEmployees() {
-  const { token } = useAuth()
+  const { token, user } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
@@ -24,6 +24,9 @@ export default function AdminEmployees() {
   const [filterQ, setFilterQ] = useState('')
   const [filterRole, setFilterRole] = useState('') // '', 'bodega','surtido','descargue','manager'
   const [filterStatus, setFilterStatus] = useState('') // '', 'active','suspended'
+  const [roleEdits, setRoleEdits] = useState({}) // { [id]: role }
+  const [roleMsg, setRoleMsg] = useState('')
+  const [roleErr, setRoleErr] = useState('')
 
   const loadEmployees = async () => {
     setLoadingList(true)
@@ -48,6 +51,22 @@ export default function AdminEmployees() {
   }
 
   useEffect(() => { if (token) loadEmployees() }, [token, filterQ, filterRole, filterStatus])
+
+  const saveRole = async (empId) => {
+    setRoleMsg(''); setRoleErr('')
+    const newRole = roleEdits[empId]
+    if (!newRole) return
+    try {
+      await api(`/auth/admin/employee/${empId}/role`, {
+        method: 'PATCH', token, body: { newRole }
+      })
+      setRoleMsg('Rol actualizado')
+      const next = { ...roleEdits }; delete next[empId]; setRoleEdits(next)
+      loadEmployees()
+    } catch (e) {
+      setRoleErr(e?.data?.error || 'change_role_error')
+    }
+  }
 
   const onSubmit = async (e) => {
     e.preventDefault()
@@ -145,6 +164,8 @@ export default function AdminEmployees() {
         <button className="border rounded px-3 py-2" onClick={loadEmployees}>Refrescar</button>
       </div>
       {listError && <div className="mb-3 text-red-600">{listError}</div>}
+      {roleErr && <div className="mb-3 text-red-600">{roleErr}</div>}
+      {roleMsg && <div className="mb-3 text-green-700">{roleMsg}</div>}
       {loadingList ? <div>Cargando...</div> : (
         <div className="overflow-auto">
           <table className="min-w-full border">
@@ -164,7 +185,31 @@ export default function AdminEmployees() {
                 <tr key={emp.id}>
                   <td className="px-3 py-2 border">{emp.full_name || '-'}</td>
                   <td className="px-3 py-2 border">{emp.email}</td>
-                  <td className="px-3 py-2 border">{emp.role}</td>
+                  <td className="px-3 py-2 border">
+                    <div className="flex items-center gap-2">
+                      <select
+                        className="border rounded px-2 py-1"
+                        value={roleEdits[emp.id] ?? emp.role}
+                        onChange={e=>setRoleEdits(prev=>({ ...prev, [emp.id]: e.target.value }))}
+                        disabled={user?.id === emp.id}
+                      >
+                        <option value="manager">Gerente</option>
+                        <option value="bodega">Bodega</option>
+                        <option value="surtido">Surtido</option>
+                        <option value="descargue">Descargue</option>
+                        <option value="vendedor">Vendedor</option>
+                        <option value="cajero">Cajero</option>
+                        <option value="soporte">Soporte</option>
+                        <option value="operativo">Operativo</option>
+                      </select>
+                      <button
+                        className="text-blue-700 disabled:text-gray-400"
+                        onClick={()=>saveRole(emp.id)}
+                        disabled={user?.id === emp.id || (roleEdits[emp.id] ?? emp.role) === emp.role}
+                        title={user?.id === emp.id ? 'No puedes cambiar tu propio rol' : 'Guardar rol'}
+                      >Guardar</button>
+                    </div>
+                  </td>
                   <td className="px-3 py-2 border">{emp.status}</td>
                   <td className="px-3 py-2 border">{emp.national_id || '-'}</td>
                   <td className="px-3 py-2 border">{emp.blood_type || '-'}</td>
