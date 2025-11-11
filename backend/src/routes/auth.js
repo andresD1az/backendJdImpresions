@@ -460,6 +460,9 @@ router.patch('/admin/employees/:id', requireAuth, ensureRole(['manager']), async
 
     await audit({ userId: req.user.id, eventType: 'update_employee', ip: req.ip, userAgent: req.headers['user-agent'], details: { employeeId: id } });
     return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ error: 'update_employee_error' });
+  }
 });
 
 // Delete employee (hard delete)
