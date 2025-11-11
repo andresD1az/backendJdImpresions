@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { api } from '../lib/api'
+import { setAuthenticatedUserContext, clearAuthenticatedUserContext, trackEvent } from '../telemetry'
 
 const AuthContext = createContext(null)
 
@@ -28,6 +29,10 @@ export function AuthProvider({ children }) {
       const res = await api('/auth/me', { token })
       setUser(res.user)
       setLocked(false)
+      // Set user context for telemetry
+      if (res.user?.id) {
+        setAuthenticatedUserContext(String(res.user.id), res.user.email);
+      }
       return { ok: true, user: res.user }
     } catch (err) {
       if (err.status === 423) {
@@ -39,6 +44,7 @@ export function AuthProvider({ children }) {
       setToken('')
       setUser(null)
       setLocked(false)
+      clearAuthenticatedUserContext();
       return { ok: false }
     }
   }
@@ -60,8 +66,11 @@ export function AuthProvider({ children }) {
           setLocked(true)
         } catch {}
       }
+      // Track successful login
+      trackEvent('user_login_frontend', { role: u?.role, email });
       return { ok: true, user: u }
     } catch (e) {
+      trackEvent('user_login_failed', { email, error: e?.data?.error });
       return { ok: false, error: e?.data?.error || 'login_error' }
     } finally {
       setLoading(false)
@@ -75,6 +84,8 @@ export function AuthProvider({ children }) {
     setToken('')
     setUser(null)
     setLocked(false)
+    clearAuthenticatedUserContext();
+    trackEvent('user_logout');
   }
 
   const value = useMemo(() => ({ token, user, locked, loading, setToken, setUser, setLocked, fetchMe, login, logout }), [token, user, locked, loading])

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
+import { trackEvent } from '../telemetry'
 
 export default function AdminEmployees() {
   const { token, user } = useAuth()
@@ -56,14 +57,18 @@ export default function AdminEmployees() {
     setRoleMsg(''); setRoleErr('')
     const newRole = roleEdits[empId]
     if (!newRole) return
+    const employee = employees.find(e => e.id === empId);
+    const oldRole = employee?.role;
     try {
       await api(`/auth/admin/employee/${empId}/role`, {
         method: 'PATCH', token, body: { newRole }
       })
       setRoleMsg('Rol actualizado')
       const next = { ...roleEdits }; delete next[empId]; setRoleEdits(next)
+      trackEvent('employee_role_change_frontend', { employeeId: empId, fromRole: oldRole, toRole: newRole });
       loadEmployees()
     } catch (e) {
+      trackEvent('employee_role_change_failed', { employeeId: empId, error: e?.data?.error });
       setRoleErr(e?.data?.error || 'change_role_error')
     }
   }

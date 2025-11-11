@@ -9,11 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@microsoft/applicationinsights-web": "^3.0.5",
     "proyecto-frontend": "file:",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-google-recaptcha": "^2.1.0",
-    "react-router-dom": "^6.26.2"
+    "react-router-dom": "^6.26.2",
+    "web-vitals": "^3.5.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
