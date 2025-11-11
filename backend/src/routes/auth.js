@@ -10,6 +10,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { enforceSessionState } from '../middleware/sessionActivity.js';
 import { audit } from '../utils/audit.js';
 import { ensureRole } from '../middleware/roles.js';
+import { trackEvent } from '../telemetry.js';
 
 const router = express.Router();
 
@@ -132,6 +133,7 @@ router.post('/login', async (req, res) => {
     const sessionId = rows[0].id;
 
     await audit({ userId: user.id, sessionId, eventType: 'login_success', ip: req.ip, userAgent: req.headers['user-agent'] });
+    trackEvent('user_login', { userId: user.id, role: user.role, email: user.email });
     return res.json({ token });
   } catch (e) {
     console.error('auth_login_error:', e?.message || e, e?.stack || '')
@@ -297,6 +299,7 @@ router.post('/unlock', requireAuth, async (req, res) => {
     }
     await query('UPDATE sessions SET is_locked = FALSE, last_activity_at = NOW() WHERE id = $1', [req.session.id]);
     await audit({ userId: req.user.id, sessionId: req.session.id, eventType: 'unlock_success', ip: req.ip, userAgent: req.headers['user-agent'] });
+    trackEvent('session_unlock', { userId: req.user.id, sessionId: req.session.id });
     return res.json({ ok: true });
   } catch (e) {
     return res.status(500).json({ error: 'unlock_error' });
@@ -510,6 +513,7 @@ return res.status(409).json({ error: 'must_keep_one_manager' });
 
 await query('UPDATE users SET role = $1, updated_at = NOW() WHERE id = $2', [String(newRole), id]);
 await audit({ userId: req.user.id, eventType: 'change_role', ip: req.ip, userAgent: req.headers['user-agent'], details: { employeeId: id, fromRole: target.role, toRole: String(newRole) } });
+trackEvent('employee_role_change', { managerId: req.user.id, employeeId: id, fromRole: target.role, toRole: String(newRole) });
 return res.json({ ok: true });
 } catch (e) {
 return res.status(500).json({ error: 'change_role_error' });

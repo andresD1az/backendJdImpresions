@@ -11,8 +11,12 @@ import { runMigrations } from './db/runMigrations.js';
 import authRouter, { devRouter } from './routes/auth.js';
 import managerRouter from './routes/manager.js';
 import storeRouter from './routes/store.js';
+import { initTelemetry } from './telemetry.js';
 
 dotenv.config();
+
+// Initialize Application Insights telemetry (must be first)
+initTelemetry();
 
 // Prefer IPv4 first to avoid ENETUNREACH when the platform lacks IPv6 routing
 try { setDefaultResultOrder('ipv4first') } catch {}
@@ -85,15 +89,23 @@ const PORT = process.env.PORT || 4000;
 
 // Health
 app.get('/health', async (req, res) => {
-  const status = { status: 'ok', time: new Date().toISOString() };
+  const status = { 
+    status: 'ok', 
+    version: '0.1.0',
+    time: new Date().toISOString(),
+    uptime: process.uptime(),
+    env: process.env.NODE_ENV || 'development'
+  };
   try {
     await pool.query('SELECT 1');
     status.db = 'ok';
   } catch (e) {
     status.db = 'error';
     status.db_error = e.message;
+    status.status = 'degraded';
   }
-  res.json(status);
+  const httpCode = status.status === 'ok' ? 200 : 503;
+  res.status(httpCode).json(status);
 });
 
 // Rate limiting
