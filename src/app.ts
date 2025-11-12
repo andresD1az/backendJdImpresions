@@ -3,6 +3,10 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { config } from './config';
 import uploadsRouter from './modules/uploads/router';
+import authRouter from './modules/auth/router';
+import salesRouter from './modules/sales/router';
+import productsRouter from './modules/products/router';
+import customersRouter from './modules/customers/router';
 import { authMiddleware, requireManager } from './middleware/auth';
 
 const app = express();
@@ -30,6 +34,12 @@ app.get('/health', (req, res) => {
     environment: config.nodeEnv,
   });
 });
+
+// Public routes
+app.use('/auth', authRouter);
+app.use('/sales', salesRouter);
+app.use('/products', productsRouter);
+app.use('/customers', customersRouter);
 
 // Manager routes (protected with authentication)
 app.use('/manager', authMiddleware, requireManager, uploadsRouter);
