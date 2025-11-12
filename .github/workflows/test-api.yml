@@ -10,6 +10,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
+      NODE_ENV: test
       TESTRAIL_HOST: ${{ secrets.TESTRAIL_HOST }}
       TESTRAIL_USERNAME: ${{ secrets.TESTRAIL_USERNAME }}
       TESTRAIL_API_KEY: ${{ secrets.TESTRAIL_API_KEY }}
