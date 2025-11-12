@@ -8,6 +8,7 @@ import salesRouter from './modules/sales/router';
 import productsRouter from './modules/products/router';
 import customersRouter from './modules/customers/router';
 import { authMiddleware, requireManager } from './middleware/auth';
+import { metricsMiddleware, MetricsCollector } from './middleware/metrics';
 
 const app = express();
 
@@ -26,12 +27,24 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Metrics middleware (before routes)
+app.use(metricsMiddleware);
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     environment: config.nodeEnv,
+  });
+});
+
+// Metrics endpoint
+app.get('/metrics', (req, res) => {
+  res.json({
+    status: 'ok',
+    metrics: MetricsCollector.getMetrics(),
+    timestamp: new Date().toISOString(),
   });
 });
 
