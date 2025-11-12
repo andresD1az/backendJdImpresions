@@ -1,7 +1,8 @@
 import app from './app';
 import { config } from './config';
 
-const PORT = parseInt(config.port, 10);
+// Azure asigna el puerto automáticamente vía process.env.PORT
+const PORT = parseInt(process.env.PORT || config.port, 10);
 
 async function startServer() {
   try {
