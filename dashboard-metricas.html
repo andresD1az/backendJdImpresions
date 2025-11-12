@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JD Impresión - Dashboard de Métricas</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .metric-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .metric-label {
+            color: #666;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+        
+        .metric-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .metric-value.good {
+            color: #10b981;
+        }
+        
+        .metric-value.warning {
+            color: #f59e0b;
+        }
+        
+        .metric-value.error {
+            color: #ef4444;
+        }
+        
+        .endpoints-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+        }
+        
+        .endpoints-title {
+            font-size: 1.5em;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        
+        .endpoint-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px;
+            margin-bottom: 8px;
+            background: #f9fafb;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .endpoint-path {
+            font-family: 'Courier New', monospace;
+            color: #333;
+        }
+        
+        .endpoint-count {
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .memory-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .memory-bar {
+            background: #e5e7eb;
+            border-radius: 10px;
+            height: 30px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        
+        .memory-fill {
+            background: linear-gradient(90deg, #10b981 0%, #3b82f6 100%);
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.5s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 0.85em;
+        }
+        
+        .update-time {
+            text-align: center;
+            color: white;
+            margin-top: 20px;
+            font-size: 0.9em;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        
+        .status-badge.online {
+            background: #10b981;
+            color: white;
+        }
+        
+        .status-badge.offline {
+            background: #ef4444;
+            color: white;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .loading {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>
+            📊 JD Impresión - Dashboard
+            <span id="status-badge" class="status-badge online">ONLINE</span>
+        </h1>
+        
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-label">Total Requests</div>
+                <div id="totalRequests" class="metric-value">0</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-label">Error Rate</div>
+                <div id="errorRate" class="metric-value good">0%</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-label">Avg Response Time</div>
+                <div id="avgResponse" class="metric-value good">0ms</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-label">Uptime</div>
+                <div id="uptime" class="metric-value">0s</div>
+            </div>
+        </div>
+        
+        <div class="endpoints-card">
+            <div class="endpoints-title">🔥 Top Endpoints</div>
+            <div id="endpoints-list">
+                <p style="text-align: center; color: #666;">No hay datos aún...</p>
+            </div>
+        </div>
+        
+        <div class="memory-card">
+            <div class="endpoints-title">💾 Memory Usage</div>
+            <div>
+                <strong>Heap Used:</strong>
+                <div class="memory-bar">
+                    <div id="heap-fill" class="memory-fill" style="width: 0%">0 MB</div>
+                </div>
+            </div>
+            <div>
+                <strong>RSS (Total):</strong>
+                <div class="memory-bar">
+                    <div id="rss-fill" class="memory-fill" style="width: 0%">0 MB</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="update-time">
+            Última actualización: <span id="update-time">--:--:--</span>
+            <br>
+            <small>Se actualiza cada 5 segundos</small>
+        </div>
+    </div>
+    
+    <script>
+        const API_URL = 'https://jdimpresion-api-bdara4cbg3dkf5f9.canadacentral-01.azurewebsites.net/metrics';
+        
+        function formatBytes(bytes) {
+            return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+        }
+        
+        function formatUptime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            
+            if (hours > 0) return `${hours}h ${minutes}m`;
+            if (minutes > 0) return `${minutes}m ${secs}s`;
+            return `${secs}s`;
+        }
+        
+        async function updateMetrics() {
+            try {
+                const response = await fetch(API_URL);
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    // Update status badge
+                    document.getElementById('status-badge').className = 'status-badge online';
+                    document.getElementById('status-badge').textContent = 'ONLINE';
+                    
+                    // Update metrics
+                    document.getElementById('totalRequests').textContent = data.metrics.totalRequests;
+                    
+                    const errorRate = document.getElementById('errorRate');
+                    errorRate.textContent = data.metrics.errorRate;
+                    const errorValue = parseFloat(data.metrics.errorRate);
+                    errorRate.className = 'metric-value ' + 
+                        (errorValue === 0 ? 'good' : errorValue < 5 ? 'warning' : 'error');
+                    
+                    const avgResponse = document.getElementById('avgResponse');
+                    avgResponse.textContent = data.metrics.averageResponseTime;
+                    const responseValue = parseInt(data.metrics.averageResponseTime);
+                    avgResponse.className = 'metric-value ' + 
+                        (responseValue < 100 ? 'good' : responseValue < 500 ? 'warning' : 'error');
+                    
+                    document.getElementById('uptime').textContent = formatUptime(data.metrics.uptime);
+                    
+                    // Update endpoints
+                    const endpointsList = document.getElementById('endpoints-list');
+                    if (data.metrics.topEndpoints && data.metrics.topEndpoints.length > 0) {
+                        endpointsList.innerHTML = data.metrics.topEndpoints
+                            .map(ep => `
+                                <div class="endpoint-item">
+                                    <span class="endpoint-path">${ep.path}</span>
+                                    <span class="endpoint-count">${ep.count} requests</span>
+                                </div>
+                            `)
+                            .join('');
+                    } else {
+                        endpointsList.innerHTML = '<p style="text-align: center; color: #666;">No hay requests aún...</p>';
+                    }
+                    
+                    // Update memory
+                    if (data.metrics.memoryUsage) {
+                        const heapUsed = data.metrics.memoryUsage.heapUsed;
+                        const heapTotal = data.metrics.memoryUsage.heapTotal;
+                        const rss = data.metrics.memoryUsage.rss;
+                        
+                        const heapPercent = (heapUsed / heapTotal * 100).toFixed(1);
+                        document.getElementById('heap-fill').style.width = heapPercent + '%';
+                        document.getElementById('heap-fill').textContent = formatBytes(heapUsed);
+                        
+                        const rssPercent = Math.min((rss / (512 * 1024 * 1024) * 100), 100).toFixed(1);
+                        document.getElementById('rss-fill').style.width = rssPercent + '%';
+                        document.getElementById('rss-fill').textContent = formatBytes(rss);
+                    }
+                    
+                    // Update timestamp
+                    const now = new Date();
+                    document.getElementById('update-time').textContent = now.toLocaleTimeString();
+                }
+            } catch (error) {
+                console.error('Error fetching metrics:', error);
+                document.getElementById('status-badge').className = 'status-badge offline';
+                document.getElementById('status-badge').textContent = 'OFFLINE';
+            }
+        }
+        
+        // Initial load
+        updateMetrics();
+        
+        // Update every 5 seconds
+        setInterval(updateMetrics, 5000);
+    </script>
+</body>
+</html>

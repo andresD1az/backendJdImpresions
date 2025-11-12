@@ -30,6 +30,43 @@ app.use(express.urlencoded({ extended: true }));
 // Metrics middleware (before routes)
 app.use(metricsMiddleware);
 
+// Root endpoint - API Info
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    name: 'JD Impresión API',
+    version: '1.0.0',
+    status: 'online',
+    endpoints: {
+      health: '/health',
+      metrics: '/metrics',
+      auth: {
+        login: 'POST /auth/login',
+        register: 'POST /auth/register',
+        profile: 'GET /auth/profile',
+        logout: 'POST /auth/logout',
+        forgotPassword: 'POST /auth/forgot-password'
+      },
+      products: {
+        list: 'GET /products',
+        get: 'GET /products/:id'
+      },
+      sales: {
+        list: 'GET /sales',
+        get: 'GET /sales/:id',
+        create: 'POST /sales',
+        cancel: 'POST /sales/:id/cancel',
+        invoice: 'GET /sales/:id/invoice'
+      },
+      customers: {
+        sales: 'GET /customers/:id/sales'
+      }
+    },
+    timestamp: new Date().toISOString(),
+    environment: config.nodeEnv,
+  });
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
