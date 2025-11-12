@@ -32,4 +32,6 @@ jobs:
       - name: Run tests (Jest)
         run: npm run test:ci
       - name: Publish to TestRail
+        if: always()
         run: npm run report:testrail
+        continue-on-error: true

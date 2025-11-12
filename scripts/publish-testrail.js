@@ -22,11 +22,19 @@ function env(name, required = true) {
 }
 
 async function main() {
-  const host = env('TESTRAIL_HOST')
-  const username = env('TESTRAIL_USERNAME')
-  const apiKey = env('TESTRAIL_API_KEY')
-  const projectId = Number(env('TESTRAIL_PROJECT_ID'))
-  const suiteId = Number(env('TESTRAIL_SUITE_ID'))
+  const host = env('TESTRAIL_HOST', false)
+  const username = env('TESTRAIL_USERNAME', false)
+  const apiKey = env('TESTRAIL_API_KEY', false)
+  const projectId = Number(env('TESTRAIL_PROJECT_ID', false) || '0')
+  const suiteId = Number(env('TESTRAIL_SUITE_ID', false) || '0')
+
+  // Skip if TestRail not configured
+  if (!host || !username || !apiKey || !projectId) {
+    console.log('⚠️  TestRail credentials not configured. Skipping publish.')
+    console.log('   Tests passed successfully but results not sent to TestRail.')
+    console.log('   To enable: Set TESTRAIL_HOST, TESTRAIL_USERNAME, TESTRAIL_API_KEY, TESTRAIL_PROJECT_ID in GitHub Secrets.')
+    return
+  }
 
   const api = axios.create({
     baseURL: host.replace(/\/$/, '') + '/index.php?/api/v2/',
