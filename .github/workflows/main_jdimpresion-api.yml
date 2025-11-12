@@ -4,9 +4,12 @@
 name: Build and deploy Node.js app to Azure Web App - jdimpresion-api
 
 on:
-  push:
-    branches:
-      - main
+  # Deshabilitado: Este workflow tiene rutas incorrectas (./backend no existe)
+  # Causa error 409 conflict en deployments
+  # Usar ci-cd-complete.yml o azure-deploy.yml en su lugar
+  # push:
+  #   branches:
+  #     - main
   workflow_dispatch:
 
 jobs:
