@@ -170,12 +170,12 @@ jobs:
           path: deploy/
           retention-days: 7
 
-  # 🚀 Deploy to Staging (manual trigger)
+  # 🎭 Deploy to Staging (DESHABILITADO - Falta configurar AZURE_WEBAPP_PUBLISH_PROFILE_STAGING)
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/develop')
+    if: false  # Deshabilitado hasta configurar secrets de Azure
     environment:
       name: staging
       url: https://jdimpresion-api-staging.azurewebsites.net
@@ -193,12 +193,12 @@ jobs:
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_STAGING }}
           package: ./deploy
 
-  # 🎯 Deploy to Production (manual approval required)
+  # 🎯 Deploy to Production (DESHABILITADO - Falta configurar AZURE_WEBAPP_PUBLISH_PROFILE)
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: false  # Deshabilitado hasta configurar secrets de Azure
     environment:
       name: production
       url: https://jdimpresion-api.azurewebsites.net
